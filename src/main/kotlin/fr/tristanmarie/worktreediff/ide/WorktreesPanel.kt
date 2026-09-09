@@ -20,14 +20,12 @@ import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.TreeSpeedSearch
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.Alarm
-import com.intellij.util.ui.tree.TreeUtil
 import fr.tristanmarie.worktreediff.core.ChangeKind
 import fr.tristanmarie.worktreediff.core.ChangedFile
 import fr.tristanmarie.worktreediff.core.DirNode
 import fr.tristanmarie.worktreediff.core.FileNode
 import fr.tristanmarie.worktreediff.core.Git
 import fr.tristanmarie.worktreediff.core.TreeChild
-import fr.tristanmarie.worktreediff.core.ViewMode
 import fr.tristanmarie.worktreediff.core.Worktree
 import fr.tristanmarie.worktreediff.core.buildFileNodes
 import java.awt.event.KeyAdapter
@@ -37,6 +35,8 @@ import java.awt.event.MouseEvent
 import java.nio.file.Paths
 import javax.swing.Icon
 import javax.swing.JTree
+import javax.swing.event.TreeExpansionEvent
+import javax.swing.event.TreeExpansionListener
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.DefaultTreeModel
 import javax.swing.tree.TreePath
@@ -99,6 +99,14 @@ class WorktreesPanel(private val project: Project, parent: Disposable) : SimpleT
             override fun keyPressed(e: KeyEvent) {
                 if (e.keyCode == KeyEvent.VK_ENTER) openSelected()
             }
+        })
+        tree.addTreeExpansionListener(object : TreeExpansionListener {
+            override fun treeExpanded(event: TreeExpansionEvent) {
+                val node = event.path.lastPathComponent as? DefaultMutableTreeNode ?: return
+                if (node.userObject is WorktreeNode) expandBelow(node)
+            }
+
+            override fun treeCollapsed(event: TreeExpansionEvent) {}
         })
         BoardService.getInstance(project).worktreesPanel = this
         scheduleRefresh()
@@ -192,40 +200,44 @@ class WorktreesPanel(private val project: Project, parent: Disposable) : SimpleT
 
         root.removeAllChildren()
         val settings = WorktreeDiffSettings.getInstance(project)
-        val toExpand = mutableListOf<DefaultMutableTreeNode>()
+        val reopen = mutableListOf<DefaultMutableTreeNode>()
         for (row in rows) {
             when (row) {
                 is MessageNode -> root.add(DefaultMutableTreeNode(row))
                 is WorktreeData -> {
                     val worktreeNode = DefaultMutableTreeNode(row.node)
                     root.add(worktreeNode)
-                    for (child in row.children) {
-                        worktreeNode.add(build(child, settings, toExpand))
-                    }
-                    if (row.node.worktree.path in expanded) toExpand.add(0, worktreeNode)
+                    for (child in row.children) worktreeNode.add(build(child, settings))
+                    if (row.node.worktree.path in expanded) reopen.add(worktreeNode)
                 }
             }
         }
         model.reload()
         tree.emptyText.text = "No worktree"
-        // Sections and folders open by default; worktrees only reopen if they were open before.
-        for (node in toExpand) tree.expandPath(TreePath(node.path))
+        // Worktrees start folded, as in the VS Code view, and only reopen if they were open
+        // before; inside an open worktree every section and folder is unfolded (see init).
+        for (node in reopen) tree.expandPath(TreePath(node.path))
     }
 
-    private fun build(node: Node, settings: WorktreeDiffSettings, toExpand: MutableList<DefaultMutableTreeNode>): DefaultMutableTreeNode {
+    private fun build(node: Node, settings: WorktreeDiffSettings): DefaultMutableTreeNode {
         val treeNode = DefaultMutableTreeNode(node)
         when (node) {
-            is SectionNode -> {
-                for (child in fileRows(node, settings)) treeNode.add(build(child, settings, toExpand))
-                toExpand.add(treeNode)
-            }
-            is DirRow -> {
-                for (child in node.node.children) treeNode.add(build(rowOf(child), settings, toExpand))
-                toExpand.add(treeNode)
-            }
+            is SectionNode -> for (child in fileRows(node, settings)) treeNode.add(build(child, settings))
+            is DirRow -> for (child in node.node.children) treeNode.add(build(rowOf(child), settings))
             else -> {}
         }
         return treeNode
+    }
+
+    /** Unfolds everything under a node: a worktree's sections and folders are all worth seeing. */
+    private fun expandBelow(node: DefaultMutableTreeNode) {
+        for (i in 0 until node.childCount) {
+            val child = node.getChildAt(i) as DefaultMutableTreeNode
+            if (child.childCount > 0) {
+                tree.expandPath(TreePath(child.path))
+                expandBelow(child)
+            }
+        }
     }
 
     private fun openSelected() {
@@ -300,15 +312,13 @@ class WorktreesPanel(private val project: Project, parent: Disposable) : SimpleT
             bg {
                 // An added or untracked file has no left-hand side; a deleted one has no right-hand side.
                 val leftText = if (kind == ChangeKind.ADDED || kind == ChangeKind.UNTRACKED) "" else Git.showFile(cwd, node.leftRef, node.file.oldPath ?: rel)
+                // The VFS lookup touches the disk: off the UI thread, like the git call above.
+                val rightFile = if (kind == ChangeKind.DELETED) null else virtualFileOf("$cwd/$rel")
                 ui {
                     val factory = DiffContentFactory.getInstance()
                     val fileType = FileTypeManager.getInstance().getFileTypeByFileName(name)
                     val left = factory.create(project, leftText, fileType)
-                    val right = if (kind == ChangeKind.DELETED) {
-                        factory.createEmpty()
-                    } else {
-                        virtualFileOf("$cwd/$rel")?.let { factory.create(project, it) } ?: factory.createEmpty()
-                    }
+                    val right = rightFile?.let { factory.create(project, it) } ?: factory.createEmpty()
                     val leftTitle = if (node.leftRef.isEmpty()) "(none)" else node.leftRef.take(7)
                     DiffManager.getInstance().showDiff(project, SimpleDiffRequest("$name ($worktreeName)", left, right, leftTitle, worktreeName))
                 }
@@ -316,13 +326,12 @@ class WorktreesPanel(private val project: Project, parent: Disposable) : SimpleT
         }
 
         fun openFile(project: Project, node: FileNode) {
-            val file = virtualFileOf("${node.worktree.path}/${node.file.path}") ?: return
-            ui { OpenFileDescriptor(project, file).navigate(true) }
+            bg {
+                val file = virtualFileOf("${node.worktree.path}/${node.file.path}") ?: return@bg
+                ui { OpenFileDescriptor(project, file).navigate(true) }
+            }
         }
 
-        fun expandAll(tree: Tree) = TreeUtil.expandAll(tree)
     }
 }
 
-@Suppress("unused")
-private val viewModes = ViewMode.entries

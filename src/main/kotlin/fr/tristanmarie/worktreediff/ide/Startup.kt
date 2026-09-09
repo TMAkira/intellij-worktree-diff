@@ -67,6 +67,31 @@ class Startup : ProjectActivity {
         val poller = RequestPoller(project)
         val future = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay({ poller.tick() }, 3, 3, TimeUnit.SECONDS)
         Disposer.register(service) { future.cancel(false) }
+
+        if (System.getProperty("worktreeDiff.smoke") == "true") smoke(project)
+    }
+
+    /**
+     * The walk-through behind `./gradlew runIde -PsmokeProject=...`: opens each surface in turn
+     * so a screenshot, or the log, says whether it renders. Never runs in a real IDE.
+     */
+    private fun smoke(project: Project) {
+        val scheduler = AppExecutorUtil.getAppScheduledExecutorService()
+        fun at(seconds: Long, work: () -> Unit) {
+            scheduler.schedule({ if (!project.isDisposed) ui(work) }, seconds, TimeUnit.SECONDS)
+        }
+        at(5) { com.intellij.openapi.wm.ToolWindowManager.getInstance(project).getToolWindow("DevFlow")?.activate(null) }
+        at(25) {
+            val window = com.intellij.openapi.wm.ToolWindowManager.getInstance(project).getToolWindow("DevFlow") ?: return@at
+            window.contentManager.contents.getOrNull(1)?.let { window.contentManager.setSelectedContent(it) }
+        }
+        at(40) {
+            bg {
+                val main = BoardService.getInstance(project).ensureBoard().find { it.isMain } ?: return@bg
+                PanelEditorProvider.openDetail(project, main.path, main.name)
+            }
+        }
+        at(55) { PanelEditorProvider.openAriaInfo(project) }
     }
 }
 

@@ -41,15 +41,18 @@ fun notifyWarning(project: Project?, content: String, vararg actions: Pair<Strin
 
 fun virtualFileOf(path: String): VirtualFile? = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Paths.get(path))
 
-/** Opens a file in an editor, optionally scrolled to a 0-based line. */
+/** Opens a file in an editor, optionally scrolled to a 0-based line. Safe from any thread. */
 fun openAt(project: Project, path: String, line: Int? = null) {
-    val file = virtualFileOf(path) ?: run {
-        notifyWarning(project, "File not found: $path")
-        return
-    }
-    ui {
-        if (line != null) OpenFileDescriptor(project, file, line, 0).navigate(true)
-        else OpenFileDescriptor(project, file).navigate(true)
+    bg {
+        val file = virtualFileOf(path)
+        if (file == null) {
+            notifyWarning(project, "File not found: $path")
+            return@bg
+        }
+        ui {
+            if (line != null) OpenFileDescriptor(project, file, line, 0).navigate(true)
+            else OpenFileDescriptor(project, file).navigate(true)
+        }
     }
 }
 

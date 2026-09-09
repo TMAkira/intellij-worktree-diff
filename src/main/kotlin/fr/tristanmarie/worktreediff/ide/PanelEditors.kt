@@ -50,7 +50,7 @@ class PanelVirtualFile(name: String, val kind: PanelKind, val worktreePath: Stri
     override fun getPath(): String = "worktree-diff://${kind.name.lowercase()}/${worktreePath ?: ""}"
 }
 
-class PanelEditorProvider : FileEditorProvider {
+class PanelEditorProvider : FileEditorProvider, com.intellij.openapi.project.DumbAware {
     override fun accept(project: Project, file: VirtualFile): Boolean = file is PanelVirtualFile
 
     override fun createEditor(project: Project, file: VirtualFile): FileEditor {

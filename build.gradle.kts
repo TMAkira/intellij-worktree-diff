@@ -50,4 +50,17 @@ tasks {
         sourceCompatibility = "21"
         targetCompatibility = "21"
     }
+
+    // `./gradlew runIde -PsmokeProject=<path>` opens that project in the sandbox IDE with no
+    // first-run dialogs, and the plugin walks through its own surfaces (see Startup.smoke).
+    runIde {
+        providers.gradleProperty("smokeProject").orNull?.let { path ->
+            args(path)
+            systemProperty("worktreeDiff.smoke", "true")
+            systemProperty("idea.trust.all.projects", "true")
+            systemProperty("jb.consents.confirmation.enabled", "false")
+            systemProperty("idea.initially.ask.config", "never")
+            systemProperty("ide.show.tips.on.startup", "false")
+        }
+    }
 }
