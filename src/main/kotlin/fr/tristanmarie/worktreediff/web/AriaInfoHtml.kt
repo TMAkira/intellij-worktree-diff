@@ -1,0 +1,207 @@
+package fr.tristanmarie.worktreediff.web
+
+/** Everything aria leaves on this machine, as one editor tab. */
+object AriaInfoHtml {
+    private const val CSS = """
+body { padding: 20px 24px 48px; max-width: 1000px; }
+h1 { font-size: 1.35em; margin: 0 0 4px; font-weight: 600; }
+h2 { font-size: 1.05em; margin: 0 0 10px; font-weight: 600; }
+section { margin-top: 26px; }
+.note {
+  font-size: 0.85em;
+  opacity: 0.75;
+  margin: 6px 0 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--wd-border, rgba(128,128,128,0.4));
+}
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.chip {
+  font-size: 0.75em;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--wd-badge-bg, rgba(128,128,128,0.2));
+  color: var(--wd-badge-fg, inherit);
+}
+.rows { margin-top: 10px; }
+.rowitem {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  width: 100%;
+  min-width: 0;
+}
+.rowitem:hover { background: var(--wd-hover, rgba(128,128,128,0.12)); }
+.rowitem .key {
+  color: var(--wd-link, #58a6ff);
+  font-size: 0.9em;
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowitem .val {
+  font-size: 0.85em;
+  opacity: 0.7;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.learn { padding: 8px 12px; margin-top: 8px; }
+.learn .top { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
+.learn .top:hover .what { color: var(--wd-link-active, #79b8ff); }
+.learn .chev { flex: 0 0 12px; opacity: 0.6; font-size: 0.8em; }
+.learn .when { font-size: 0.78em; opacity: 0.6; flex: 0 0 auto; }
+.learn .what { font-weight: 600; font-size: 0.95em; flex: 1 1 auto; min-width: 0; }
+.learn.folded .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.learn .body { font-size: 0.88em; opacity: 0.85; margin: 8px 0 0 22px; line-height: 1.55; }
+.learn .body .lead { opacity: 0.65; font-size: 0.92em; }
+.learn .body > div + div { margin-top: 6px; }
+.learn .chips { margin: 8px 0 0 22px; }
+.jump { font-size: 0.8em; width: auto; color: var(--wd-link, #58a6ff); margin: 8px 0 0 22px; }
+.jump:hover { text-decoration: underline; }
+.warn { color: var(--wd-warning, #d29922); font-size: 0.85em; margin-top: 8px; }
+.path { font-family: var(--wd-editor-font, monospace); font-size: 0.82em; opacity: 0.7; }
+"""
+
+    private const val SCRIPT = """
+let lastInfo = null;
+let openKeys = new Set();
+function persist() { host.post({ type: 'setUi', ui: { open: [...openKeys] } }); }
+
+function fileLink(path, label, line) {
+  return '<button class="key" data-open="' + esc(path) + '"' +
+    (line === undefined ? '' : ' data-line="' + line + '"') + '>' + esc(label) + '</button>';
+}
+
+function pluginSection(info) {
+  const p = info.plugin;
+  if (!p.installed) {
+    return '<section><h2>Plugin</h2><div class="empty">The aria plugin is not installed. ' +
+      'Everything else in this plugin works on plain OpenSpec.</div></section>';
+  }
+  return '<section><h2>Plugin</h2>' +
+    '<div class="muted">version ' + esc(p.version || '?') + ' &middot; ' + p.skills.length + ' skills</div>' +
+    (info.pluginDescription ? '<div class="note">' + esc(info.pluginDescription) + '</div>' : '') +
+    '<div class="chips">' + p.skills.map(s => '<span class="chip">' + esc(s) + '</span>').join('') + '</div>' +
+    '</section>';
+}
+
+function learningCard(project, l) {
+  const key = project.name + '#' + l.line;
+  const isOpen = openKeys.has(key);
+  const body = isOpen
+    ? '<div class="body">' +
+      (l.context ? '<div class="lead">' + esc(l.context) + '</div>' : '') +
+      (l.learning ? '<div>' + esc(l.learning) + '</div>' : '') +
+      '</div>' +
+      (project.learningsFile
+        ? '<button class="jump" data-open="' + esc(project.learningsFile) + '" data-line="' + l.line +
+          '">open in learnings.md</button>'
+        : '')
+    : '';
+  return '<div class="card learn' + (isOpen ? '' : ' folded') + '">' +
+    '<div class="top" data-fold="' + esc(key) + '">' +
+    '<span class="chev">' + (isOpen ? '▾' : '▸') + '</span>' +
+    '<span class="when">' + esc(l.date || 'undated') + '</span>' +
+    '<span class="what" title="' + esc(l.title) + '">' + esc(l.title) + '</span>' +
+    '</div>' +
+    (l.tags.length ? '<div class="chips">' + l.tags.map(t => '<span class="chip">' + esc(t) + '</span>').join('') + '</div>' : '') +
+    body +
+    '</div>';
+}
+
+function projectsSection(info) {
+  if (!info.projects.length) {
+    return '<section><h2>Project knowledge</h2>' +
+      '<div class="empty">No .aria/ directory in this project — aria:setup has not run here. ' +
+      'That is state the plugin writes per repository, so nothing can be shown for a project without it.</div>' +
+      '</section>';
+  }
+  return info.projects.map(p =>
+    '<section><h2>' + esc(p.name) + '</h2>' +
+    '<div class="path">' + esc(p.root) + '/.aria</div>' +
+    (p.generated ? '<div class="muted">project.md generated by aria:setup on ' + esc(p.generated) + '</div>' : '') +
+    (p.summary ? '<div class="note" title="' + esc(p.summary) + '">' + esc(p.summary) + '</div>' : '') +
+    (p.projectFile ? '<div class="rows">' + fileLink(p.projectFile, 'project.md') + '</div>' : '') +
+    (p.learnings.length
+      ? '<div class="muted" style="margin-top:14px">' + p.learnings.length + ' learning' +
+        (p.learnings.length === 1 ? '' : 's') + ' captured by aria:learn</div>' +
+        p.learnings.map(l => learningCard(p, l)).join('')
+      : '<div class="empty">No learning captured yet.</div>') +
+    '</section>').join('');
+}
+
+function memorySection(m) {
+  if (!m.exists) {
+    return '<section><h2>Personal memory</h2>' +
+      '<div class="empty">No ~/.claude/aria/_index.md on this machine.</div></section>';
+  }
+  const rows = m.entries.map(e =>
+    '<button class="rowitem" data-open="' + esc(e.filePath) + '" title="' + esc(e.description) + '">' +
+    '<span class="key">' + esc(e.file) + '</span>' +
+    '<span class="val">' + esc(e.description) + '</span></button>').join('');
+  const externals = m.externals.map(e =>
+    '<div class="rowitem" title="' + esc(e.description) + '">' +
+    '<span class="key path">' + esc(e.location) + '</span>' +
+    '<span class="val">' + esc(e.description) + '</span></div>').join('');
+
+  return '<section><h2>Personal memory</h2>' +
+    '<div class="path">' + esc(m.dir) + '</div>' +
+    '<div class="note">This directory is a personal memory store, not plugin state. The aria ' +
+    'plugin neither writes nor reads it — it is listed here because it shares the name.</div>' +
+    '<div class="muted">' + m.entries.length + ' notes' +
+    (m.updated ? ' &middot; index last updated ' + esc(m.updated) : '') + '</div>' +
+    (m.indexPath ? '<div class="rows">' + fileLink(m.indexPath, '_index.md') + '</div>' : '') +
+    '<div class="rows">' + rows + '</div>' +
+    (m.missing.length ? '<div class="warn">' + m.missing.length + ' indexed note(s) missing on disk: ' +
+      esc(m.missing.join(', ')) + '</div>' : '') +
+    (m.unlisted.length ? '<div class="warn">' + m.unlisted.length + ' file(s) on disk absent from the index: ' +
+      esc(m.unlisted.join(', ')) + '</div>' : '') +
+    (externals ? '<h2 style="margin-top:20px">External references</h2><div class="rows">' + externals + '</div>' : '') +
+    '</section>';
+}
+
+function render(info) {
+  lastInfo = info;
+  document.getElementById('app').innerHTML =
+    '<div class="toolbar"><h1>Aria</h1>' +
+    '<button class="link" data-action="refresh">Refresh</button></div>' +
+    pluginSection(info) + projectsSection(info) + memorySection(info.memory);
+}
+
+document.addEventListener('click', event => {
+  const fold = event.target.closest('[data-fold]');
+  if (fold) {
+    const key = fold.getAttribute('data-fold');
+    if (openKeys.has(key)) { openKeys.delete(key); } else { openKeys.add(key); }
+    persist();
+    if (lastInfo) { render(lastInfo); }
+    return;
+  }
+  const action = event.target.closest('[data-action]');
+  if (action) { host.post({ type: 'refresh' }); return; }
+  const open = event.target.closest('[data-open]');
+  if (!open || !open.getAttribute('data-open')) { return; }
+  host.post({
+    type: 'openFile',
+    path: open.getAttribute('data-open'),
+    line: open.hasAttribute('data-line') ? Number(open.getAttribute('data-line')) : undefined
+  });
+});
+
+window.__receive = function(data) {
+  if (data.type !== 'state') { return; }
+  if (data.ui) { openKeys = new Set(data.ui.open || []); }
+  render(data.info);
+};
+host.post({ type: 'ready' });
+"""
+
+    fun html(): String = Html.page(CSS, SCRIPT)
+}

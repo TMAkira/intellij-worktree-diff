@@ -1,0 +1,98 @@
+<idea-plugin>
+    <id>fr.tristanmarie.worktree-diff</id>
+    <name>Worktree Diff</name>
+    <vendor email="t.marie@akira-sarl.fr">Tristan Marie</vendor>
+    <description><![CDATA[
+        <p>See every git worktree's diff against a base branch, in one tree, without opening another window.</p>
+        <p>Adds a <b>DevFlow</b> tool window with two tabs:</p>
+        <ul>
+            <li><b>Worktrees</b>: one node per worktree, with what its branch adds against the base
+                (merge base, like a pull request) and what is not committed yet. Double-click a file for the diff.</li>
+            <li><b>OpenSpec</b>: one card per worktree with the OpenSpec changes it works on, their task progress,
+                the CI gates derived from the pipeline, and the drafted changes waiting for a worktree.</li>
+        </ul>
+        <p>From either tab a Claude Code session opens in the right worktree, in a terminal tab, with a prompt
+        that says where the work lives. An agent may also ask for a worktree through a JSON request file;
+        nothing is created until a human approves the prompt.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="DevFlow" anchor="left" icon="/icons/devflow.svg"
+                    factoryClass="fr.tristanmarie.worktreediff.ide.DevFlowToolWindowFactory"/>
+        <projectConfigurable parentId="tools" id="fr.tristanmarie.worktreediff.settings"
+                             displayName="Worktree Diff"
+                             instance="fr.tristanmarie.worktreediff.ide.WorktreeDiffConfigurable"/>
+        <notificationGroup id="Worktree Diff" displayType="BALLOON"/>
+        <fileEditorProvider implementation="fr.tristanmarie.worktreediff.ide.PanelEditorProvider"/>
+        <postStartupActivity implementation="fr.tristanmarie.worktreediff.ide.Startup"/>
+    </extensions>
+
+    <actions>
+        <action id="WorktreeDiff.Refresh" class="fr.tristanmarie.worktreediff.ide.RefreshAction"
+                text="Refresh" description="Re-read every worktree" icon="AllIcons.Actions.Refresh"/>
+        <action id="WorktreeDiff.ChangeBase" class="fr.tristanmarie.worktreediff.ide.ChangeBaseAction"
+                text="Change Base..." description="Pick the ref every worktree is compared against" icon="AllIcons.Vcs.Branch"/>
+        <action id="WorktreeDiff.GroupByFolders" class="fr.tristanmarie.worktreediff.ide.GroupByFoldersAction"
+                text="Group by Folders" description="Group changed files under their folders, or show a flat list" icon="AllIcons.Actions.GroupByPackage"/>
+        <action id="WorktreeDiff.StartWork" class="fr.tristanmarie.worktreediff.ide.StartWorkAction"
+                text="Start New Work..." description="Frame a new piece of work as an OpenSpec change with Claude" icon="AllIcons.General.Add"/>
+        <action id="WorktreeDiff.CreateWorktree" class="fr.tristanmarie.worktreediff.ide.CreateWorktreeAction"
+                text="Create Worktree for a Drafted Change..." description="Give a drafted OpenSpec change a branch and a worktree" icon="AllIcons.Actions.NewFolder"/>
+        <action id="WorktreeDiff.ReviewRequests" class="fr.tristanmarie.worktreediff.ide.ReviewRequestsAction"
+                text="Review Agent Launch Requests" description="Reopen the launch requests nobody answered" icon="AllIcons.General.BalloonInformation"/>
+        <action id="WorktreeDiff.ShowAria" class="fr.tristanmarie.worktreediff.ide.ShowAriaAction"
+                text="Show Aria Info" description="Everything the aria plugin leaves on this machine" icon="AllIcons.General.Information"/>
+        <action id="WorktreeDiff.Settings" class="fr.tristanmarie.worktreediff.ide.OpenSettingsAction"
+                text="Settings..." icon="AllIcons.General.Settings"/>
+
+        <action id="WorktreeDiff.ShowDiff" class="fr.tristanmarie.worktreediff.ide.ShowDiffAction"
+                text="Show Diff" icon="AllIcons.Actions.Diff"/>
+        <action id="WorktreeDiff.OpenFile" class="fr.tristanmarie.worktreediff.ide.OpenFileAction"
+                text="Open File" icon="AllIcons.Actions.MenuOpen"/>
+        <action id="WorktreeDiff.OpenDetail" class="fr.tristanmarie.worktreediff.ide.OpenDetailAction"
+                text="Open OpenSpec Detail"/>
+        <action id="WorktreeDiff.OpenClaudeHere" class="fr.tristanmarie.worktreediff.ide.OpenClaudeHereAction"
+                text="Open Claude Here"/>
+        <action id="WorktreeDiff.RevealInExplorer" class="fr.tristanmarie.worktreediff.ide.RevealInExplorerAction"
+                text="Reveal in File Manager"/>
+        <action id="WorktreeDiff.OpenAsProject" class="fr.tristanmarie.worktreediff.ide.OpenAsProjectAction"
+                text="Open Worktree as Project"/>
+
+        <group id="WorktreeDiff.Toolbar">
+            <reference ref="WorktreeDiff.GroupByFolders"/>
+            <reference ref="WorktreeDiff.ChangeBase"/>
+            <reference ref="WorktreeDiff.Refresh"/>
+        </group>
+
+        <group id="WorktreeDiff.TreePopup">
+            <reference ref="WorktreeDiff.ShowDiff"/>
+            <reference ref="WorktreeDiff.OpenFile"/>
+            <separator/>
+            <reference ref="WorktreeDiff.OpenDetail"/>
+            <reference ref="WorktreeDiff.OpenClaudeHere"/>
+            <separator/>
+            <reference ref="WorktreeDiff.RevealInExplorer"/>
+            <reference ref="WorktreeDiff.OpenAsProject"/>
+        </group>
+
+        <group id="WorktreeDiff.Gear">
+            <reference ref="WorktreeDiff.CreateWorktree"/>
+            <reference ref="WorktreeDiff.ShowAria"/>
+            <reference ref="WorktreeDiff.ChangeBase"/>
+            <separator/>
+            <reference ref="WorktreeDiff.Settings"/>
+        </group>
+
+        <group id="WorktreeDiff.Tools" text="Worktree Diff" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <reference ref="WorktreeDiff.StartWork"/>
+            <reference ref="WorktreeDiff.CreateWorktree"/>
+            <reference ref="WorktreeDiff.ReviewRequests"/>
+            <reference ref="WorktreeDiff.ShowAria"/>
+            <reference ref="WorktreeDiff.Refresh"/>
+        </group>
+    </actions>
+</idea-plugin>
